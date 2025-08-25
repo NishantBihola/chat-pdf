@@ -1,22 +1,12 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  webpack: (config) => {
-    config.resolve.alias.canvas = false;
-
-    return config;
-  },
   images: {
+    // replace old `images.domains` with this
     remotePatterns: [
-      {
-        protocol: "https",
-        hostname: "i.imgur.com",
-      },
-      {
-        protocol: "https",
-        hostname: "img.clerk.com",
-      },
+      { protocol: "https", hostname: "i.imgur.com" },
+      { protocol: "https", hostname: "images.unsplash.com" },
+      { protocol: "https", hostname: "avatars.githubusercontent.com" },
     ],
   },
 };
-
 export default nextConfig;
