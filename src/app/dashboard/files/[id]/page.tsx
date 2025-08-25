@@ -1,41 +1,28 @@
-import Chat from "@/components/Chat";
-import PdfView from "@/components/PdfView";
-import { adminDb } from "@/firebaseAdmin";
-import { auth } from "@clerk/nextjs/server";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
-async function ChatToFilePage({
-  params: { id },
-}: {
-  params: {
-    id: string;
-  };
-}) {
-  auth().protect();
-  const { userId } = await auth();
+type PageProps = { params: { id: string } };
 
-  const ref = await adminDb
-    .collection("users")
-    .doc(userId!)
-    .collection("files")
-    .doc(id)
-    .get();
+export default async function FilePage({ params }: PageProps) {
+  const supabase = supabaseAdmin();
 
-  const url = ref.data()?.downloadUrl;
+  const { data: doc, error } = await supabase
+    .from("documents")
+    .select("*")
+    .eq("id", params.id)
+    .single();
+
+  if (error || !doc) {
+    // You can throw notFound() or render an error UI
+    return <div className="p-6">Document not found.</div>;
+  }
 
   return (
-    <div className="grid lg:grid-cols-5 h-full overflow-hidden">
-      {/* Right */}
-      <div className="col-span-5 lg:col-span-2 overflow-y-auto">
-        {/* Chat */}
-        <Chat id={id} />
+    <div className="p-6">
+      <h1 className="text-xl font-semibold">{doc.title}</h1>
+      <div className="text-sm text-gray-500 mt-1">
+        Status: {doc.status} • Uploaded: {new Date(doc.created_at).toLocaleString()}
       </div>
-
-      {/* Left */}
-      <div className="col-span-5 lg:col-span-3 bg-gray-100 border-r-2 lg:border-indigo-600 lg:-order-1 overflow-auto">
-        {/* PDFView */}
-        <PdfView url={url} />
-      </div>
+      {/* render viewer/chat/etc here */}
     </div>
   );
 }
-export default ChatToFilePage;
