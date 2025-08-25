@@ -1,80 +1,58 @@
 "use client";
 
-import { generateEmbeddings } from "@/actions/generateEmbeddings";
-import { db, storage } from "@/firebase";
-import { useUser } from "@clerk/nextjs";
-import { doc, setDoc } from "firebase/firestore";
-import { getDownloadURL, ref, uploadBytesResumable } from "firebase/storage";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { v4 as uuidv4 } from "uuid";
+import { supabase } from "@/lib/supabaseClient";
+import { useUser } from "@clerk/nextjs";
 
-export enum StatusText {
-  UPLOADING = "Uploading file...",
-  UPLOADED = "File uploaded successfully",
-  SAVING = "Saving file to database...",
-  GENERATING = "Generating AI Embeddings, This will only take a few seconds...",
-}
+type UploadResult = { documentId: string };
 
-export type Status = StatusText[keyof StatusText];
-
-function useUpload() {
-  const [progress, setProgress] = useState<number | null>(null);
-  const [fileId, setFileId] = useState<string | null>(null);
-  const [status, setStatus] = useState<Status | null>(null);
+export default function useUpload() {
   const { user } = useUser();
-  const router = useRouter();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleUpload = async (file: File) => {
-    if (!file || !user) return;
+  async function upload(file: File): Promise<UploadResult> {
+    if (!user) throw new Error("Sign in required");
+    setLoading(true);
+    setError(null);
+    try {
+      const path = `${user.id}/${Date.now()}-${file.name}`;
 
-    // TODO: FREE/PRO limitations...
+      // 1) Upload to Supabase Storage (bucket "documents")
+      const { error: upErr } = await supabase
+        .storage
+        .from("documents")
+        .upload(path, file, { upsert: false, contentType: file.type });
+      if (upErr) throw upErr;
 
-    const fileIdToUploadTo = uuidv4(); // example: 123e4567-e89b-12d3-a456-426614174000
+      // 2) Insert DB row
+      const { data: row, error: dbErr } = await supabase
+        .from("documents")
+        .insert({
+          user_id: user.id,
+          title: file.name,
+          storage_path: path,
+          status: "uploaded",
+        })
+        .select()
+        .single();
+      if (dbErr) throw dbErr;
 
-    const storageRef = ref(
-      storage,
-      `users/${user.id}/files/${fileIdToUploadTo}`
-    );
+      // 3) Kick off server ingest (chunks+embeddings)
+      await fetch("/api/ingest-upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ documentId: row.id, storagePath: path }),
+      });
 
-    const uploadTask = uploadBytesResumable(storageRef, file);
+      return { documentId: row.id as string };
+    } catch (e: any) {
+      setError(e.message ?? "Upload failed");
+      throw e;
+    } finally {
+      setLoading(false);
+    }
+  }
 
-    uploadTask.on(
-      "state_changed",
-      (snapshot) => {
-        const percent = Math.round(
-          (snapshot.bytesTransferred / snapshot.totalBytes) * 100
-        );
-        setStatus(StatusText.UPLOADING);
-        setProgress(percent);
-      },
-      (error) => {
-        console.error("Error uploading file", error);
-      },
-      async () => {
-        setStatus(StatusText.UPLOADED);
-
-        const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
-
-        setStatus(StatusText.SAVING);
-        await setDoc(doc(db, "users", user.id, "files", fileIdToUploadTo), {
-          name: file.name,
-          size: file.size,
-          type: file.type,
-          downloadUrl: downloadUrl,
-          ref: uploadTask.snapshot.ref.fullPath,
-          createdAt: new Date(),
-        });
-
-        setStatus(StatusText.GENERATING);
-        await generateEmbeddings(fileIdToUploadTo);
-
-        setFileId(fileIdToUploadTo);
-      }
-    );
-  };
-
-  return { progress, status, fileId, handleUpload };
+  return { upload, loading, error };
 }
-
-export default useUpload;
