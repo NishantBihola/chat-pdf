@@ -19,6 +19,7 @@
     "@radix-ui/react-toast": "^1.2.1",
     "@react-pdf/renderer": "^3.4.4",
     "@stripe/stripe-js": "^4.10.0",
+    "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "^2.56.0",
     "byte-size": "^9.0.0",
     "class-variance-authority": "^0.7.1",
